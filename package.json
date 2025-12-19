@@ -1,0 +1,22 @@
+{
+  "name": "redteam-ai-agent",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lucide-react": "^0.451.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.7",
+    "postcss": "^8.4.38",
+    "autoprefixer": "^10.4.19",
+    "typescript": "^5.4.5"
+  }
+}
