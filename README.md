@@ -50,7 +50,10 @@ The orchestrator is a force-multiplier, not a decider.
   SSRF, path traversal, command injection), defense (Sigma rules, hardening
   checklist), tool cheat-sheets (nmap, ffuf, nuclei, httpx, subfinder, amass,
   gobuster, dirsearch, sqlmap, jwt_tool).
-- **CI / supply-chain hygiene** — GitHub Actions for typecheck + build +
+- **Tests** — 28 vitest unit tests (prompts, modes, engagements lib, API route
+  validation) + 17 bash tests for the CLI. Run with `npm test` in `orchestrator/`
+  and `bash tests/cli/test_rt_agent.sh` at the repo root.
+- **CI / supply-chain hygiene** — GitHub Actions for typecheck + tests + build +
   shellcheck + reference link sanity. CodeQL workflow. Dependabot.
 - **Containerized toolbox (optional)** — Kali + mitmproxy + all-in-one Docker images.
 - **Report-ready output** — VRT-classified findings, CVSS 3.1 vectors, exec summary,
