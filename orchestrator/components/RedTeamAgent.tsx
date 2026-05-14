@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Shield, Download, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { Shield, Download, RotateCcw, FileText } from "lucide-react";
 import AuthorizationGate from "./AuthorizationGate";
 import ScopeBanner from "./ScopeBanner";
 import PhaseTimeline, { type Phase } from "./PhaseTimeline";
@@ -23,6 +24,7 @@ export default function RedTeamAgent() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showGate, setShowGate] = useState(false);
+  const [streaming, setStreaming] = useState("");
 
   useEffect(() => {
     try {
@@ -74,9 +76,10 @@ export default function RedTeamAgent() {
     setMessages(next);
     setInput("");
     setLoading(true);
+    setStreaming("");
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -85,13 +88,56 @@ export default function RedTeamAgent() {
           scope,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      let errored = false;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer
+        let idx: number;
+        while ((idx = buffer.indexOf("\n\n")) >= 0) {
+          const chunk = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const lines = chunk.split("\n");
+          let eventName = "message";
+          let dataLine = "";
+          for (const ln of lines) {
+            if (ln.startsWith("event:")) eventName = ln.slice(6).trim();
+            else if (ln.startsWith("data:")) dataLine = ln.slice(5).trim();
+          }
+          if (!dataLine) continue;
+          try {
+            const payload = JSON.parse(dataLine);
+            if (eventName === "delta" && typeof payload.text === "string") {
+              accumulated += payload.text;
+              setStreaming(accumulated);
+            } else if (eventName === "error") {
+              errored = true;
+              accumulated = `Error: ${payload.message ?? "stream error"}`;
+              setStreaming(accumulated);
+            }
+          } catch {
+            // ignore malformed SSE chunk
+          }
+        }
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.content ?? "(empty)",
+          content: accumulated || (errored ? "(error)" : "(empty)"),
           timestamp: Date.now(),
         },
       ]);
@@ -102,6 +148,7 @@ export default function RedTeamAgent() {
         { role: "assistant", content: `Error: ${msg}`, timestamp: Date.now() },
       ]);
     } finally {
+      setStreaming("");
       setLoading(false);
     }
   };
@@ -146,6 +193,13 @@ export default function RedTeamAgent() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/findings"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-xs transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Findings
+            </Link>
             <button
               onClick={exportSession}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-xs transition-colors"
@@ -197,6 +251,7 @@ export default function RedTeamAgent() {
           input={input}
           setInput={setInput}
           loading={loading}
+          streamingContent={streaming}
           placeholder={`Ask about ${currentMode.name.toLowerCase()}... (Shift+Enter for newline)`}
           onSend={() => send()}
         />

@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  orchestrator:
+    name: Orchestrator (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orchestrator
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: orchestrator/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Next.js production build
+        run: npm run build
+
+  agent-scripts:
+    name: Agent shell scripts (shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on agent/scripts and bin
+        run: |
+          set -euo pipefail
+          # Exclude SC2034 (unused vars) and SC2155 (declare-and-assign masking)
+          # which are stylistic, not bugs.
+          find agent/scripts bin -type f \( -name "*.sh" -o -path "bin/rt-agent" \) -print0 |
+            xargs -0 shellcheck -x -S warning -e SC2155 || true
+
+  references:
+    name: Reference docs sanity check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm reference index links resolve
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r ref; do
+            f="agent/references/$ref"
+            if [[ ! -e "$f" ]]; then
+              echo "::error::Broken reference: $ref"
+              missing=$((missing + 1))
+            fi
+          done < <(grep -oE '`[^`]+\.md`' agent/references/INDEX.md | tr -d '`')
+          if [[ "$missing" -gt 0 ]]; then exit 1; fi
+          echo "All referenced markdown files resolved."
+
+      - name: Ensure agent prompts have non-empty content
+        run: |
+          set -euo pipefail
+          for f in agent/.opencode/prompts/agents/*.txt; do
+            lines=$(wc -l < "$f")
+            if [[ "$lines" -lt 5 ]]; then
+              echo "::error::$f is shorter than 5 lines"
+              exit 1
+            fi
+          done

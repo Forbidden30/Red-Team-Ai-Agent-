@@ -34,20 +34,27 @@ The orchestrator is a force-multiplier, not a decider.
 - **8 specialized AI agents** —
   `operator` · `recon-specialist` · `source-analyzer` · `vulnerability-analyst` ·
   `exploit-developer` · `fuzzer` · `osint-analyst` · `report-writer`.
-- **Web orchestrator (Next.js)** — chat UI with scope-gated modes (OSINT,
-  Reconnaissance, Vulnerability Analysis, Internal Pentest, Reporting, Defense).
-- **CLI integration** — works with Claude Code, OpenCode, and Codex out of the box
-  via `agent/.claude/`, `agent/.opencode/`, and `agent/.codex/` configurations.
+- **Web orchestrator (Next.js)** — chat UI with scope-gated modes; **server-side
+  streaming** via SSE, full **markdown rendering** with copy-to-clipboard, and a
+  **findings viewer** that browses the engagement workspace on disk.
+- **`rt-agent` CLI** — standalone bash CLI that implements all the slash commands as
+  real shell behavior (engage / auth / status / finding / queue / note / report).
+- **CLI integration** — works with Claude Code, OpenCode, and Codex via
+  `agent/.claude/`, `agent/.opencode/`, and `agent/.codex/` configurations.
 - **Engagement workspaces** — per-engagement `scope.json`, `intel.md`, `findings/`,
-  `artifacts/`, `reports/`. Resumable.
+  `artifacts/`, `reports/`, `events.jsonl`. Resumable.
 - **Scope-aware guardrails** — `agent/scripts/hooks/scope-check.sh` blocks commands
   that target hosts outside the authorized list.
-- **Reference library** — OWASP Top 10 (Web), OWASP API Security Top 10, AD methodology
-  (enumeration, Kerberos, ADCS), tool cheat-sheets (nmap, ffuf, nuclei, httpx,
-  subfinder, amass).
+- **Reference library** — OWASP Top 10 (Web), OWASP API Security Top 10, AD
+  methodology (enumeration, Kerberos, ADCS), payload methodology (XSS, SQLi, SSTI,
+  SSRF, path traversal, command injection), defense (Sigma rules, hardening
+  checklist), tool cheat-sheets (nmap, ffuf, nuclei, httpx, subfinder, amass,
+  gobuster, dirsearch, sqlmap, jwt_tool).
+- **CI / supply-chain hygiene** — GitHub Actions for typecheck + build +
+  shellcheck + reference link sanity. CodeQL workflow. Dependabot.
 - **Containerized toolbox (optional)** — Kali + mitmproxy + all-in-one Docker images.
 - **Report-ready output** — VRT-classified findings, CVSS 3.1 vectors, exec summary,
-  remediation backlog.
+  remediation backlog, Sigma detection rules paired with offensive findings.
 
 ## Architecture
 
@@ -147,6 +154,28 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+### Use the `rt-agent` CLI (no AI CLI needed)
+
+A standalone bash CLI is at `bin/rt-agent`. It implements the slash-command contracts
+documented in `agent/.opencode/commands/` as real shell behavior, so you can drive an
+engagement without any AI CLI:
+
+```bash
+./bin/rt-agent engage acme-q2
+./bin/rt-agent auth                           # interactive scope.json setup
+./bin/rt-agent intel-add Hosts "api.acme.example — Cloudflare, Next.js"
+./bin/rt-agent finding "Reflected XSS in /search" High XSS
+./bin/rt-agent queue add recon-specialist SSRF artifacts/ssrf-1.txt
+./bin/rt-agent note "switched to vuln-analyze phase"
+./bin/rt-agent status                         # show engagement state
+./bin/rt-agent report                         # bundle reports/final-report.md
+
+# One-shot chat against the orchestrator (must be running on :3000)
+./bin/rt-agent chat osint "Subdomain enum plan for example.com"
+```
+
+Symlink to PATH for convenience: `sudo ln -s $(pwd)/bin/rt-agent /usr/local/bin/rt-agent`.
 
 ### Optional: build the Docker toolbox
 

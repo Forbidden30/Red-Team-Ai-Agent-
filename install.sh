@@ -85,7 +85,10 @@ echo "==> Verifying agent/ workspace"
 for d in \
   "$AGENT" "$AGENT/.claude" "$AGENT/.codex" "$AGENT/.opencode" \
   "$AGENT/.opencode/commands" "$AGENT/.opencode/prompts/agents" \
-  "$AGENT/engagements" "$AGENT/references" "$AGENT/scripts"
+  "$AGENT/engagements" "$AGENT/references" "$AGENT/scripts" \
+  "$AGENT/references/vuln-checklists" "$AGENT/references/api-security" \
+  "$AGENT/references/payloads" "$AGENT/references/defense" \
+  "$AGENT/references/tools/recon" "$ROOT/bin"
 do
   if [[ ! -d "$d" ]]; then
     echo "    MISSING: $d" >&2
@@ -93,7 +96,16 @@ do
   fi
 done
 chmod +x "$AGENT"/scripts/*.sh "$AGENT"/scripts/hooks/*.sh 2>/dev/null || true
+chmod +x "$ROOT"/bin/rt-agent 2>/dev/null || true
 echo "    OK"
+
+# --- 4b. CLI in PATH hint --------------------------------------------------
+echo "==> rt-agent CLI"
+if [[ ! -L "/usr/local/bin/rt-agent" && -x "$ROOT/bin/rt-agent" ]]; then
+  echo "    To put rt-agent on your PATH:"
+  echo "        sudo ln -s $ROOT/bin/rt-agent /usr/local/bin/rt-agent"
+  echo "    Or call it directly:  $ROOT/bin/rt-agent <command>"
+fi
 
 # --- 5. Docker (optional) --------------------------------------------------
 if [[ "$WITH_DOCKER" -eq 1 ]]; then

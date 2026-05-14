@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+# rt-agent — CLI for the Red Team AI Agent workspace.
+#
+# Implements the slash commands documented in agent/.opencode/commands/ as actual
+# shell behavior, so they work outside of OpenCode / Claude Code / Codex too.
+#
+# Usage:
+#   rt-agent <command> [args]
+#
+# Commands:
+#   engage <name>            initialize agent/engagements/<name>/
+#   auth                     interactively set scope.json for the active engagement
+#   status                   show engagement status
+#   list                     list all engagements
+#   use <name>               set the active engagement (writes .rt-agent-active)
+#   finding <title> <sev>    create a new finding markdown
+#   confirm-findings         run check_findings_integrity.sh on the active engagement
+#   intel-add <heading> ...  append a bullet under a heading in intel.md
+#   note <text>              append a timestamped note to notes.md
+#   event <type> [k=v ...]   append a structured event to events.jsonl
+#   queue <list|drop|done>   minimal case-queue ops (SQLite)
+#   report                   compose final report (calls finalize_engagement.sh)
+#   scope-check <command>    test whether a command passes scope-check
+#   prompt <agent>           print the prompt for an agent (operator, recon-specialist, ...)
+#   open-docs <path>         open a doc/reference from agent/references/ (prints path)
+#   chat <mode> <prompt>     one-shot ask via /api/chat (orchestrator must be running)
+#   version                  print version
+#   help                     this help
+
+set -euo pipefail
+
+VERSION="0.2.0"
+
+# --- locate workspace root ---------------------------------------------------
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AGENT="$ROOT/agent"
+ENGS="$AGENT/engagements"
+
+# --- active engagement -------------------------------------------------------
+active_engagement() {
+  if [[ -n "${ENGAGEMENT:-}" ]]; then
+    echo "$ENGAGEMENT"
+    return
+  fi
+  local marker="$ROOT/.rt-agent-active"
+  if [[ -f "$marker" ]]; then
+    cat "$marker"
+    return
+  fi
+  # If exactly one engagement directory exists, use it.
+  local dirs=()
+  for d in "$ENGS"/*/; do
+    [[ -d "$d" ]] && dirs+=("$(basename "$d")")
+  done
+  if [[ ${#dirs[@]} -eq 1 ]]; then
+    echo "${dirs[0]}"
+    return
+  fi
+  return 1
+}
+
+require_engagement() {
+  local eng
+  if ! eng=$(active_engagement); then
+    echo "error: no active engagement. Run 'rt-agent engage <name>' or 'rt-agent use <name>'." >&2
+    exit 2
+  fi
+  echo "$eng"
+}
+
+# --- commands ----------------------------------------------------------------
+
+cmd_help() {
+  sed -n '2,/^set -e/p' "$SCRIPT_PATH" | sed -n '/^#/p' | sed 's/^# \?//'
+}
+
+cmd_version() {
+  echo "rt-agent v$VERSION"
+}
+
+cmd_engage() {
+  local name="${1:?Usage: rt-agent engage <name>}"
+  [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
+    echo "error: engagement name must match [a-z0-9][a-z0-9._-]*" >&2
+    exit 2
+  }
+  local dir="$ENGS/$name"
+  if [[ -d "$dir" ]]; then
+    echo "error: engagement '$name' already exists. Use 'rt-agent resume $name'." >&2
+    exit 2
+  fi
+  mkdir -p "$dir/findings" "$dir/artifacts" "$dir/reports"
+
+  cat > "$dir/scope.json" <<EOF
+{
+  "engagement": "$name",
+  "authorized_by": "TBD",
+  "accepted_at": null,
+  "authorized_targets": [],
+  "out_of_scope": [],
+  "rules_of_engagement": {
+    "noise_budget": "moderate",
+    "data_exfil_allowed": false,
+    "lateral_movement_allowed": false
+  }
+}
+EOF
+
+  cp "$AGENT/scripts/templates/intel.md" "$dir/intel.md"
+  sed -i "s/^- \*\*Name:\*\* TBD/- **Name:** $name/" "$dir/intel.md"
+  : > "$dir/notes.md"
+  : > "$dir/events.jsonl"
+
+  echo "$name" > "$ROOT/.rt-agent-active"
+
+  cat <<EOF
+✓ Engagement created: $name
+
+  $dir/
+  ├── scope.json    (run 'rt-agent auth' to fill in)
+  ├── intel.md
+  ├── notes.md
+  ├── events.jsonl
+  ├── findings/
+  ├── artifacts/
+  └── reports/
+
+Next: rt-agent auth
+EOF
+}
+
+cmd_auth() {
+  local eng; eng=$(require_engagement)
+  local scope="$ENGS/$eng/scope.json"
+
+  echo "Setting scope for engagement: $eng"
+  echo "(Press Enter to keep existing values shown in [brackets].)"
+  echo
+
+  local current_authorized_by; current_authorized_by=$(jq -r '.authorized_by // "TBD"' "$scope")
+  read -r -p "Authorized by [${current_authorized_by}]: " authorized_by
+  authorized_by="${authorized_by:-$current_authorized_by}"
+
+  echo "In-scope targets (one per line, end with empty line). Existing:"
+  jq -r '.authorized_targets[]? | "  - " + .' "$scope" 2>/dev/null || echo "  (none)"
+  local -a targets=()
+  while true; do
+    read -r -p "  + " line
+    [[ -z "$line" ]] && break
+    targets+=("$line")
+  done
+  if [[ ${#targets[@]} -eq 0 ]]; then
+    mapfile -t targets < <(jq -r '.authorized_targets[]?' "$scope" 2>/dev/null)
+  fi
+
+  echo "Out-of-scope (one per line, end with empty line). Existing:"
+  jq -r '.out_of_scope[]? | "  - " + .' "$scope" 2>/dev/null || echo "  (none)"
+  local -a oos=()
+  while true; do
+    read -r -p "  - " line
+    [[ -z "$line" ]] && break
+    oos+=("$line")
+  done
+  if [[ ${#oos[@]} -eq 0 ]]; then
+    mapfile -t oos < <(jq -r '.out_of_scope[]?' "$scope" 2>/dev/null)
+  fi
+
+  read -r -p "Have you confirmed written authorization? [y/N] " yn
+  if [[ "$yn" != "y" && "$yn" != "Y" ]]; then
+    echo "abort: authorization not confirmed." >&2
+    exit 3
+  fi
+
+  local now; now=$(date -u +%FT%TZ)
+  jq -n \
+    --arg engagement "$eng" \
+    --arg authorized_by "$authorized_by" \
+    --arg accepted_at "$now" \
+    --argjson targets "$(printf '%s\n' "${targets[@]}" | jq -R . | jq -s .)" \
+    --argjson oos "$(printf '%s\n' "${oos[@]}" | jq -R . | jq -s .)" \
+    '{
+      engagement: $engagement,
+      authorized_by: $authorized_by,
+      accepted_at: $accepted_at,
+      authorized_targets: $targets,
+      out_of_scope: $oos,
+      rules_of_engagement: {
+        noise_budget: "moderate",
+        data_exfil_allowed: false,
+        lateral_movement_allowed: false
+      }
+    }' > "$scope.tmp"
+  mv "$scope.tmp" "$scope"
+
+  echo "✓ Scope saved to $scope"
+  ENGAGEMENT="$eng" "$AGENT/scripts/append_log_entry.sh" engagement.authorized \
+    "authorized_by=$authorized_by" "target_count=${#targets[@]}"
+}
+
+cmd_status() {
+  local eng; eng=$(require_engagement)
+  local base="$ENGS/$eng"
+  echo "Engagement: $eng"
+  echo "Path:       $base"
+  if [[ -f "$base/scope.json" ]]; then
+    echo "Authorized by:    $(jq -r '.authorized_by' "$base/scope.json")"
+    echo "Accepted at:      $(jq -r '.accepted_at // "(unset)"' "$base/scope.json")"
+    echo "In-scope:         $(jq -r '.authorized_targets | length' "$base/scope.json") targets"
+    echo "Out-of-scope:     $(jq -r '.out_of_scope | length' "$base/scope.json") rules"
+  fi
+  if [[ -d "$base/findings" ]]; then
+    local n; n=$(find "$base/findings" -maxdepth 1 -name 'F-*.md' | wc -l)
+    echo "Findings:         $n"
+  fi
+  if [[ -f "$base/events.jsonl" ]]; then
+    echo "Events logged:    $(wc -l < "$base/events.jsonl")"
+  fi
+  if [[ -d "$base/reports" ]]; then
+    local r; r=$(find "$base/reports" -maxdepth 1 -name '*.md' | wc -l)
+    echo "Reports:          $r"
+  fi
+  echo
+  echo "Recent notes:"
+  tail -n 5 "$base/notes.md" 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+}
+
+cmd_list() {
+  local active=""
+  active=$(active_engagement 2>/dev/null || true)
+  for d in "$ENGS"/*/; do
+    [[ -d "$d" ]] || continue
+    local n; n=$(basename "$d")
+    local marker=" "
+    [[ "$n" == "$active" ]] && marker="*"
+    local fcount=0
+    [[ -d "$d/findings" ]] && fcount=$(find "$d/findings" -maxdepth 1 -name 'F-*.md' | wc -l)
+    printf "  %s %-30s %s findings\n" "$marker" "$n" "$fcount"
+  done
+}
+
+cmd_use() {
+  local name="${1:?Usage: rt-agent use <name>}"
+  local dir="$ENGS/$name"
+  [[ -d "$dir" ]] || { echo "error: no such engagement: $name" >&2; exit 2; }
+  echo "$name" > "$ROOT/.rt-agent-active"
+  echo "✓ active engagement: $name"
+}
+
+cmd_finding() {
+  local title="${1:?Usage: rt-agent finding <title> <severity> [class]}"
+  local severity="${2:?Usage: rt-agent finding <title> <severity> [class]}"
+  local class="${3:-Unclassified}"
+  local eng; eng=$(require_engagement)
+  ENGAGEMENT="$eng" "$AGENT/scripts/append_finding.sh" "$title" "$severity" "$class"
+}
+
+cmd_confirm_findings() {
+  local eng; eng=$(require_engagement)
+  ENGAGEMENT="$eng" "$AGENT/scripts/check_findings_integrity.sh" "$eng"
+}
+
+cmd_intel_add() {
+  local heading="${1:?Usage: rt-agent intel-add <heading> <bullet...>}"
+  shift
+  local text="$*"
+  [[ -z "$text" ]] && { echo "error: bullet text required" >&2; exit 2; }
+  local eng; eng=$(require_engagement)
+  local f="$ENGS/$eng/intel.md"
+  [[ -f "$f" ]] || { echo "error: $f missing" >&2; exit 2; }
+  awk -v h="## $heading" -v line="- $text" '
+    BEGIN { added=0 }
+    $0==h && !added { print; print line; added=1; next }
+    { print }
+    END { if (!added) { print ""; print h; print line } }
+  ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  echo "✓ appended to intel.md under '$heading'"
+}
+
+cmd_note() {
+  local text="$*"
+  [[ -z "$text" ]] && { echo "Usage: rt-agent note <text>" >&2; exit 2; }
+  local eng; eng=$(require_engagement)
+  local ts; ts=$(date -u +%FT%TZ)
+  printf -- '- [%s] %s\n' "$ts" "$text" >> "$ENGS/$eng/notes.md"
+  echo "✓ note appended"
+}
+
+cmd_event() {
+  local type="${1:?Usage: rt-agent event <type> [k=v ...]}"
+  shift
+  local eng; eng=$(require_engagement)
+  ENGAGEMENT="$eng" "$AGENT/scripts/append_log_entry.sh" "$type" "$@"
+}
+
+cmd_queue() {
+  local op="${1:-list}"
+  shift || true
+  local eng; eng=$(require_engagement)
+  local db="$ENGS/$eng/cases.sqlite"
+
+  if [[ ! -f "$db" ]]; then
+    sqlite3 "$db" < "$AGENT/scripts/schema.sql"
+  fi
+
+  case "$op" in
+    list)
+      sqlite3 -header -column "$db" \
+        "SELECT id, source_agent, class_guess, status, confidence FROM cases WHERE status='pending' ORDER BY id;"
+      ;;
+    add)
+      local source="${1:?Usage: rt-agent queue add <source-agent> <class> <artifact-ref> [confidence]}"
+      local class="${2:?missing class}"
+      local artifact="${3:?missing artifact-ref}"
+      local conf="${4:-medium}"
+      sqlite3 "$db" "INSERT INTO cases (source_agent, class_guess, artifact_ref, confidence) VALUES ('$source', '$class', '$artifact', '$conf');"
+      echo "✓ added"
+      ;;
+    done)
+      local id="${1:?Usage: rt-agent queue done <id>}"
+      sqlite3 "$db" "UPDATE cases SET status='confirmed' WHERE id=$id;"
+      echo "✓ marked done"
+      ;;
+    drop)
+      local id="${1:?Usage: rt-agent queue drop <id>}"
+      sqlite3 "$db" "UPDATE cases SET status='rejected' WHERE id=$id;"
+      echo "✓ dropped"
+      ;;
+    *)
+      echo "Usage: rt-agent queue [list|add|done|drop] [args]" >&2
+      exit 2
+      ;;
+  esac
+}
+
+cmd_report() {
+  local eng; eng=$(require_engagement)
+  "$AGENT/scripts/finalize_engagement.sh" "$eng"
+}
+
+cmd_scope_check() {
+  local cmd="${*:?Usage: rt-agent scope-check <command>}"
+  local eng; eng=$(require_engagement)
+  ENGAGEMENT="$eng" "$AGENT/scripts/hooks/scope-check.sh" "$cmd"
+  echo "✓ command would be allowed by scope-check"
+}
+
+cmd_prompt() {
+  local agent="${1:?Usage: rt-agent prompt <agent-name>}"
+  local f="$AGENT/.opencode/prompts/agents/$agent.txt"
+  if [[ ! -f "$f" ]]; then
+    echo "error: no prompt for agent '$agent'. Available:" >&2
+    ls -1 "$AGENT/.opencode/prompts/agents/" | sed 's/\.txt$//' | sed 's/^/  /' >&2
+    exit 2
+  fi
+  cat "$f"
+}
+
+cmd_open_docs() {
+  local path="${1:-INDEX.md}"
+  local f="$AGENT/references/$path"
+  [[ -f "$f" ]] || { echo "error: not found: $f" >&2; exit 2; }
+  echo "$f"
+}
+
+cmd_chat() {
+  local mode="${1:?Usage: rt-agent chat <mode> <prompt>}"
+  shift
+  local prompt="$*"
+  [[ -z "$prompt" ]] && { echo "error: prompt required" >&2; exit 2; }
+  local url="${RT_AGENT_API:-http://localhost:3000}/api/chat"
+  local scope_json="null"
+  local eng; eng=$(active_engagement 2>/dev/null || true)
+  if [[ -n "$eng" && -f "$ENGS/$eng/scope.json" ]]; then
+    scope_json=$(jq '{
+      engagement: .engagement,
+      authorizedTargets: .authorized_targets,
+      outOfScope: .out_of_scope,
+      authorizedBy: .authorized_by,
+      acceptedAt: 0
+    }' "$ENGS/$eng/scope.json")
+  fi
+  curl -sN "$url" -H 'Content-Type: application/json' -d "$(jq -nc \
+    --arg mode "$mode" \
+    --arg prompt "$prompt" \
+    --argjson scope "$scope_json" \
+    '{mode: $mode, scope: $scope, messages: [{role: "user", content: $prompt}]}')" \
+    | jq -r '.content // .error // .'
+}
+
+# --- dispatch ----------------------------------------------------------------
+main() {
+  local cmd="${1:-help}"
+  shift || true
+  case "$cmd" in
+    help|-h|--help) cmd_help ;;
+    version|-v|--version) cmd_version ;;
+    engage)            cmd_engage "$@" ;;
+    auth)              cmd_auth "$@" ;;
+    status)            cmd_status "$@" ;;
+    list|ls)           cmd_list "$@" ;;
+    use|switch)        cmd_use "$@" ;;
+    finding|find-new)  cmd_finding "$@" ;;
+    confirm-findings)  cmd_confirm_findings "$@" ;;
+    intel-add)         cmd_intel_add "$@" ;;
+    note)              cmd_note "$@" ;;
+    event)             cmd_event "$@" ;;
+    queue)             cmd_queue "$@" ;;
+    report)            cmd_report "$@" ;;
+    scope-check)       cmd_scope_check "$@" ;;
+    prompt)            cmd_prompt "$@" ;;
+    open-docs|docs)    cmd_open_docs "$@" ;;
+    chat)              cmd_chat "$@" ;;
+    *)
+      echo "error: unknown command: $cmd" >&2
+      cmd_help >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
