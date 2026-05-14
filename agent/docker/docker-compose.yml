@@ -1,0 +1,50 @@
+version: "3.9"
+
+# Optional Docker stack for tooling. The orchestrator does NOT require Docker; this
+# stack just makes Kali-style tools available without polluting the host.
+#
+#   docker compose up -d kali-toolbox
+#   docker compose exec kali-toolbox subfinder -d example.com
+#
+# Engagements bind-mount their own subdirectory so artifacts persist on the host.
+
+services:
+  kali-toolbox:
+    build: ./kali-redteam
+    image: rt-ai-agent-kali:latest
+    container_name: rt-ai-kali
+    hostname: rt-ai-kali
+    network_mode: bridge
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    working_dir: /work
+    volumes:
+      - ../engagements:/work/engagements
+      - ../references:/work/references:ro
+    environment:
+      - ENGAGEMENT
+    stdin_open: true
+    tty: true
+    command: ["sleep", "infinity"]
+
+  mitmproxy:
+    build: ./mitmproxy
+    image: rt-ai-agent-mitmproxy:latest
+    container_name: rt-ai-mitmproxy
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ../engagements:/work/engagements
+      - ../scripts/proxy_addon.py:/addons/proxy_addon.py:ro
+      - ../scripts/templates:/templates:ro
+    environment:
+      - ENGAGEMENT
+    command:
+      [
+        "mitmweb",
+        "--web-host", "0.0.0.0",
+        "-s", "/addons/proxy_addon.py",
+        "--set", "block_global=false"
+      ]

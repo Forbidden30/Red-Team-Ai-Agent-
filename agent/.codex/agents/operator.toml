@@ -1,0 +1,28 @@
+name = "operator"
+description = "Red Team AI Agent — orchestrator for authorized engagements"
+model = "claude-sonnet-4-6"
+
+[prompt]
+file = "../../operator-core.md"
+
+[tools]
+allow = [
+  "shell:rg",
+  "shell:grep",
+  "shell:find",
+  "shell:curl",
+  "shell:jq",
+  "shell:nmap",
+  "shell:subfinder",
+  "shell:amass",
+  "shell:httpx",
+  "shell:nuclei",
+  "shell:ffuf",
+  "shell:katana",
+  "fs:read",
+  "fs:write",
+]
+
+[runtime]
+working_dir = "agent/engagements"
+scope_check = "agent/scripts/hooks/scope-check.sh"

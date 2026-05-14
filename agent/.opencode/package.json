@@ -1,0 +1,11 @@
+{
+  "name": "red-team-ai-agent-opencode",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode plugin configuration for the Red Team AI Agent workspace.",
+  "scripts": {
+    "build": "tsc -p plugins/tsconfig.json"
+  },
+  "dependencies": {}
+}

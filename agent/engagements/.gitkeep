@@ -1,0 +1,12 @@
+# Engagement workspaces live here. Each is its own subdirectory:
+#
+#   agent/engagements/<name>/
+#     scope.json         — authorized targets + out-of-scope rules
+#     intel.md           — accumulated knowledge during the engagement
+#     notes.md           — running log for the operator
+#     findings/          — per-finding markdown reports
+#     artifacts/         — captured request/response evidence, screenshots
+#     reports/           — generated executive summary + technical report
+#
+# The contents of individual engagements are NOT committed by default.
+# See ../../.gitignore.

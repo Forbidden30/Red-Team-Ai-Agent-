@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/schema.json",
+  "name": "red-team-ai-agent",
+  "description": "Authorized red-team orchestration workspace.",
+  "default_agent": "operator",
+  "prompts": {
+    "operator": "prompts/agents/operator.txt",
+    "recon-specialist": "prompts/agents/recon-specialist.txt",
+    "source-analyzer": "prompts/agents/source-analyzer.txt",
+    "vulnerability-analyst": "prompts/agents/vulnerability-analyst.txt",
+    "exploit-developer": "prompts/agents/exploit-developer.txt",
+    "fuzzer": "prompts/agents/fuzzer.txt",
+    "osint-analyst": "prompts/agents/osint-analyst.txt",
+    "report-writer": "prompts/agents/report-writer.txt"
+  },
+  "commands_dir": "commands",
+  "plugins": ["plugins/engagement-hooks.ts"],
+  "instructions": "instructions/INSTRUCTIONS.md"
+}

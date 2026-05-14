@@ -1,0 +1,42 @@
+{
+  "name": "red-team-ai-agent",
+  "description": "Authorized red-team orchestration workspace for Claude Code.",
+  "agents": {
+    "default": "operator"
+  },
+  "tools": {
+    "allowAll": false,
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(jq:*)",
+      "Bash(sqlite3:*)",
+      "Bash(curl:*)",
+      "Bash(httpx:*)",
+      "Bash(nmap:*)",
+      "Bash(subfinder:*)",
+      "Bash(amass:*)",
+      "Bash(nuclei:*)",
+      "Bash(ffuf:*)",
+      "Bash(feroxbuster:*)",
+      "Bash(katana:*)",
+      "Bash(whatweb:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(curl * | bash)",
+      "Bash(curl * | sh)"
+    ]
+  },
+  "hooks": {
+    "preBash": "agent/scripts/hooks/scope-check.sh"
+  }
+}
