@@ -45,11 +45,6 @@ export async function POST(req: NextRequest) {
       return new Response("Unauthorized", { status: 401 });
     }
   }
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return new Response("ANTHROPIC_API_KEY not configured", { status: 500 });
-  }
-
   let body: ChatRequest;
   try {
     body = await req.json();
@@ -74,6 +69,13 @@ export async function POST(req: NextRequest) {
 
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
     return new Response("Last message must be a non-empty user message", { status: 400 });
+  }
+
+  // API key check happens AFTER body validation so callers get useful error
+  // messages for bad requests instead of being told the server is misconfigured.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return new Response("ANTHROPIC_API_KEY not configured", { status: 500 });
   }
 
   const system = buildSystemPrompt(body.mode, body.scope ?? null);

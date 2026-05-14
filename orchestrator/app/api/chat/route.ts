@@ -43,17 +43,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "ANTHROPIC_API_KEY is not configured. Copy .env.example to .env.local and set it.",
-      },
-      { status: 500 },
-    );
-  }
-
   let body: ChatRequest;
   try {
     body = await req.json();
@@ -81,6 +70,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "Last message must be a non-empty user message" },
       { status: 400 },
+    );
+  }
+
+  // API key check happens AFTER body validation so callers get useful error
+  // messages for bad requests instead of being told the server is misconfigured.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error:
+          "ANTHROPIC_API_KEY is not configured. Copy .env.example to .env.local and set it.",
+      },
+      { status: 500 },
     );
   }
 

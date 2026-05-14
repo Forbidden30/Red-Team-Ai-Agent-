@@ -32,8 +32,21 @@ jobs:
       - name: TypeScript typecheck
         run: npm run typecheck
 
+      - name: Vitest
+        run: npm test
+
       - name: Next.js production build
         run: npm run build
+
+  cli-tests:
+    name: CLI (bin/rt-agent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq + sqlite3
+        run: sudo apt-get update && sudo apt-get install -y jq sqlite3
+      - name: Run rt-agent test suite
+        run: bash tests/cli/test_rt_agent.sh
 
   agent-scripts:
     name: Agent shell scripts (shellcheck)

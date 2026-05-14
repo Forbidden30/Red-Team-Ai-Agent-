@@ -46,3 +46,4 @@ scratch/
 *-session-*.json
 exports/
 reports-out/
+.test-tmp/
