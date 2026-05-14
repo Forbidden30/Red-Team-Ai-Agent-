@@ -118,8 +118,16 @@ export default function FindingsPage() {
             Engagements ({engagements.length})
           </h2>
           {engagements.length === 0 && (
-            <div className="text-xs text-neutral-500 mt-2">
-              None yet. Run <code className="bg-neutral-800 px-1 rounded">bin/rt-agent engage &lt;name&gt;</code> from the repo root.
+            <div className="text-xs text-neutral-500 mt-2 space-y-2">
+              <p>
+                None yet. Run <code className="bg-neutral-800 px-1 rounded">bin/rt-agent engage &lt;name&gt;</code> from the repo root.
+              </p>
+              <p className="text-neutral-600 italic">
+                Note: engagements are filesystem-backed under{" "}
+                <code className="bg-neutral-800 px-1 rounded">agent/engagements/</code>.
+                On serverless deployments (Vercel) this view will always be empty —
+                engagements live locally next to the repo, not in the deployed runtime.
+              </p>
             </div>
           )}
           <ul className="space-y-1">
