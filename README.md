@@ -158,45 +158,11 @@ npm run dev
 
 Open http://localhost:3000.
 
-### Deploy on Vercel
-
-This repo is a monorepo — the Next.js app lives in `orchestrator/`. The `vercel.json`
-at the root tells Vercel where to find it; you should not need to set "Root Directory"
-in the Vercel dashboard.
-
-**One-time setup:**
-
-1. Click the **Add New Project** button in the Vercel dashboard and import
-   `https://github.com/Forbidden30/Red-Team-Ai-Agent-`.
-2. Accept the auto-detected framework: **Next.js**.
-3. In **Environment Variables**, add:
-
-   | Name | Value |
-   |---|---|
-   | `ANTHROPIC_API_KEY` | `sk-ant-...` (your key) |
-   | `ANTHROPIC_MODEL` | `claude-sonnet-4-6` (optional override) |
-   | `ALLOWED_ORIGINS` | (leave blank for same-origin only) |
-   | `API_SHARED_SECRET` | (optional — require `X-API-Secret` header on `/api/chat`) |
-
-4. Click **Deploy**. Subsequent pushes to `main` auto-redeploy.
-
-**What works on Vercel:**
-
-- ✅ Web orchestrator UI with all 6 modes
-- ✅ Streaming chat (`/api/chat/stream`) — Vercel supports SSE on Node runtime
-- ✅ Markdown rendering, copy-to-clipboard, session export
-- ✅ Authorization-gate scope guardrail
-
-**What does NOT work on Vercel:**
-
-- ❌ The `/findings` page will always be empty. Engagements are filesystem-backed
-  under `agent/engagements/` next to the repo; serverless functions don't have
-  access to that directory.
-- ❌ `bin/rt-agent` CLI is local-only (it's a bash script).
-- ❌ Engagement scope-check hook only runs in local CLI / OpenCode / Codex flows.
-
-The orchestrator on Vercel is essentially the **chat + methodology** layer.
-For full engagement tracking, run locally with `npm run dev`.
+> **Local-only tool.** This orchestrator is intentionally designed to run on
+> your own machine — engagements, scope files, findings, and artifacts all live
+> on the local filesystem under `agent/engagements/`. Do not host this on a
+> public cloud provider; an authorized red-team workspace should not be
+> reachable from the internet.
 
 ### Use the `rt-agent` CLI (no AI CLI needed)
 
