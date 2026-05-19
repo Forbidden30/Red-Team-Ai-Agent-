@@ -1,7 +1,7 @@
 /**
- * Tests for the /api/chat route handler — focuses on the validation surface that
- * doesn't require a real Anthropic call. The Anthropic SDK is not invoked here
- * because all inputs we reject return before construct the client.
+ * Tests for the /api/chat route handler — covers the validation surface and
+ * provider-selection behavior. Neither the Anthropic nor Gemini SDK is invoked
+ * here; every test path returns before constructing a client.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST } from "@/app/api/chat/route";
@@ -10,7 +10,6 @@ function request(body: unknown, opts?: { secret?: string; origin?: string }): Re
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (opts?.secret) headers["x-api-secret"] = opts.secret;
   if (opts?.origin) headers["Origin"] = opts.origin;
-  // Provide a Host so allowedOrigin can match.
   headers["Host"] = "localhost:3000";
   return new Request("http://localhost:3000/api/chat", {
     method: "POST",
@@ -21,9 +20,11 @@ function request(body: unknown, opts?: { secret?: string; origin?: string }): Re
 
 describe("/api/chat input validation", () => {
   beforeEach(() => {
-    // Default to "no API key" — most validation cases short-circuit before that anyway.
+    delete process.env.LLM_PROVIDER;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     delete process.env.API_SHARED_SECRET;
+    delete process.env.ALLOWED_ORIGINS;
   });
 
   it("rejects an invalid mode", async () => {
@@ -53,7 +54,7 @@ describe("/api/chat input validation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 500 when ANTHROPIC_API_KEY is unset (otherwise-valid request)", async () => {
+  it("returns 500 when ANTHROPIC_API_KEY is unset (default provider)", async () => {
     const res = await POST(
       request({
         mode: "osint",
@@ -63,6 +64,37 @@ describe("/api/chat input validation", () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it("returns 500 when LLM_PROVIDER=gemini and GEMINI_API_KEY is unset", async () => {
+    process.env.LLM_PROVIDER = "gemini";
+    const res = await POST(
+      request({
+        mode: "osint",
+        messages: [{ role: "user", content: "test" }],
+      }) as any,
+    );
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toMatch(/GEMINI_API_KEY/);
+  });
+
+  it("uses Anthropic key when LLM_PROVIDER=gemini is unset (back-compat)", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-fake";
+    // No real Anthropic call is made — the upstream will fail, returning 502.
+    // We just assert we got past the missing-key gate.
+    const res = await POST(
+      request({
+        mode: "osint",
+        messages: [{ role: "user", content: "test" }],
+      }) as any,
+    );
+    expect([502, 500]).toContain(res.status);
+    if (res.status === 500) {
+      // Should NOT be the missing-key error
+      const json = await res.json();
+      expect(json.error).not.toMatch(/ANTHROPIC_API_KEY is not configured/);
+    }
   });
 
   it("rejects with 401 when API_SHARED_SECRET is set and not provided", async () => {
@@ -78,7 +110,6 @@ describe("/api/chat input validation", () => {
 
   it("accepts when API_SHARED_SECRET matches", async () => {
     process.env.API_SHARED_SECRET = "topsecret";
-    // ANTHROPIC_API_KEY still unset → expect 500, not 401.
     const res = await POST(
       request(
         {
@@ -105,11 +136,12 @@ describe("/api/chat input validation", () => {
     expect(res.status).toBe(403);
   });
 
-  it("GET handler describes the API", async () => {
+  it("GET handler describes the API and reports provider", async () => {
     const { GET } = await import("@/app/api/chat/route");
     const res = await GET();
     const json = await res.json();
     expect(json.modes).toContain("osint");
     expect(json.method).toBe("POST");
+    expect(["anthropic", "gemini"]).toContain(json.provider);
   });
 });

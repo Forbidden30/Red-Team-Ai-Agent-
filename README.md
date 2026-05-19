@@ -10,7 +10,7 @@
   </p>
   <p align="center">
     <img src="https://img.shields.io/badge/Next.js-14-black" alt="Next.js" />
-    <img src="https://img.shields.io/badge/AI-Anthropic%20Claude-orange" alt="Anthropic" />
+    <img src="https://img.shields.io/badge/AI-Claude%20%7C%20Gemini-orange" alt="LLM providers" />
     <img src="https://img.shields.io/badge/CLI-Claude%20Code%20%7C%20OpenCode%20%7C%20Codex-blue" alt="CLIs" />
     <img src="https://img.shields.io/badge/agents-8%20specialized-red" alt="Agents" />
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
@@ -75,7 +75,7 @@ red-team-ai-agent/
 │   │   ├── page.tsx              # main page
 │   │   ├── layout.tsx
 │   │   ├── globals.css
-│   │   └── api/chat/route.ts     # server-side proxy to Anthropic (API key stays here)
+│   │   └── api/chat/route.ts     # server-side proxy to Anthropic/Gemini (API key stays here)
 │   ├── components/               # React components
 │   │   ├── RedTeamAgent.tsx
 │   │   ├── AuthorizationGate.tsx # scope-acceptance modal
@@ -130,7 +130,9 @@ red-team-ai-agent/
 ### Prerequisites
 
 - **Node.js >= 18.18** (for the orchestrator)
-- An **Anthropic API key** (https://console.anthropic.com/)
+- An LLM API key — either:
+  - **Anthropic Claude** — https://console.anthropic.com/ (default), or
+  - **Google Gemini** — https://aistudio.google.com/app/apikey
 - Optional: one or more AI CLIs (Claude Code, OpenCode, Codex)
 - Optional: Docker (for the containerized toolbox)
 
@@ -142,12 +144,23 @@ cd Red-Team-Ai-Agent-
 ./install.sh
 ```
 
-Then edit `orchestrator/.env.local` and set:
+Then edit `orchestrator/.env.local`. **Pick one provider**:
 
+**Anthropic Claude (default):**
 ```env
+LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
+
+**Google Gemini:**
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+You only need to fill in the key for the provider you picked — the other can stay blank.
 
 ### Run the web orchestrator
 

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/prompts";
+import { getApiKey, getMissingKeyError, getProvider, streamComplete } from "@/lib/llm";
 import type { ChatRequest, ModeId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -73,40 +73,29 @@ export async function POST(req: NextRequest) {
 
   // API key check happens AFTER body validation so callers get useful error
   // messages for bad requests instead of being told the server is misconfigured.
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return new Response("ANTHROPIC_API_KEY not configured", { status: 500 });
+  const provider = getProvider();
+  if (!getApiKey(provider)) {
+    return new Response(getMissingKeyError(provider), { status: 500 });
   }
 
   const system = buildSystemPrompt(body.mode, body.scope ?? null);
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
-  const client = new Anthropic({ apiKey });
 
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(sse("start", { model, mode: body.mode }));
+      controller.enqueue(sse("start", { provider, mode: body.mode }));
       try {
-        const upstream = client.messages.stream({
-          model,
-          max_tokens: 1500,
+        const final = await streamComplete({
           system,
           messages,
+          callbacks: {
+            onDelta: (delta) => controller.enqueue(sse("delta", { text: delta })),
+            onError: (message) => controller.enqueue(sse("error", { message })),
+          },
         });
-
-        upstream.on("text", (delta) => {
-          controller.enqueue(sse("delta", { text: delta }));
-        });
-
-        upstream.on("error", (err) => {
-          controller.enqueue(
-            sse("error", { message: err instanceof Error ? err.message : String(err) }),
-          );
-        });
-
-        const final = await upstream.finalMessage();
         controller.enqueue(
           sse("done", {
-            stop_reason: final.stop_reason,
+            model: final.model,
+            stop_reason: final.stopReason,
             usage: final.usage,
           }),
         );

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/prompts";
+import { complete, getApiKey, getMissingKeyError, getProvider } from "@/lib/llm";
 import type { ChatRequest, ModeId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -75,41 +75,21 @@ export async function POST(req: NextRequest) {
 
   // API key check happens AFTER body validation so callers get useful error
   // messages for bad requests instead of being told the server is misconfigured.
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "ANTHROPIC_API_KEY is not configured. Copy .env.example to .env.local and set it.",
-      },
-      { status: 500 },
-    );
+  const provider = getProvider();
+  if (!getApiKey(provider)) {
+    return NextResponse.json({ error: getMissingKeyError(provider) }, { status: 500 });
   }
 
   const system = buildSystemPrompt(body.mode, body.scope ?? null);
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
-
-  const client = new Anthropic({ apiKey });
 
   try {
-    const completion = await client.messages.create({
-      model,
-      max_tokens: 1500,
-      system,
-      messages,
-    });
-
-    const text = completion.content
-      .filter((c): c is Anthropic.TextBlock => c.type === "text")
-      .map((c) => c.text)
-      .join("\n")
-      .trim();
-
+    const result = await complete({ system, messages });
     return NextResponse.json({
-      content: text || "(no response)",
-      model: completion.model,
-      usage: completion.usage,
-      stop_reason: completion.stop_reason,
+      content: result.text,
+      model: result.model,
+      provider,
+      usage: result.usage,
+      stop_reason: result.stopReason,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -126,5 +106,6 @@ export async function GET() {
     method: "POST",
     fields: ["mode", "messages", "scope?"],
     modes: VALID_MODES,
+    provider: getProvider(),
   });
 }
